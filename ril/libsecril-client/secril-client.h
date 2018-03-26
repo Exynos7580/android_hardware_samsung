@@ -243,6 +243,9 @@ typedef enum __LoopbackPath {
  */
 int SetCallVolume(HRilClient client, SoundType type, int vol_level);
 
+// Set ril clock mode
+int SetSoundClockMode(HRilClient client, int mode);
+
 /**
  * Set external sound device path for noise reduction.
  */

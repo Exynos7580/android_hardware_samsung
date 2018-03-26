@@ -3,6 +3,8 @@
  *
  * @author  Myeongcheol Kim (mcmount.kim@samsung.com)
  *
+ * @copyright 2017 Stenkin Evgeniy (stenkinevgeniy@gmail.com)
+ *
  * @brief   RIL client library for multi-client support
  */
 
@@ -21,7 +23,6 @@
 #include <string.h>
 #include <fcntl.h>
 #include <utils/Log.h>
-#include <android/log.h>
 #include <pthread.h>
 #include "secril-client.h"
 #include <hardware_legacy/power.h> // For wakelock
@@ -60,6 +61,8 @@ namespace android {
 #define REQ_SET_TWO_MIC_CTRL        108
 #define REQ_SET_DHA_CTRL        109
 #define REQ_SET_LOOPBACK            110
+#define REQ_SET_SOUND_CLOCK_MODE            113
+
 
 // OEM request function ID
 #define OEM_FUNC_SOUND          0x08
@@ -612,6 +615,49 @@ int CloseClient_RILD(HRilClient client) {
     free(client);
 
     return RIL_CLIENT_ERR_SUCCESS;
+}
+
+/**
+ * Set ril sound clock mode.
+ */
+extern "C"
+int SetSoundClockMode(HRilClient client, int mode) {
+    RilClientPrv *client_prv;
+    int ret;
+    char data[5] = {0,};
+
+    if (client == NULL || client->prv == NULL) {
+        RLOGE("%s: Invalid client %p", __FUNCTION__, client);
+        return RIL_CLIENT_ERR_INVAL;
+    }
+
+    client_prv = (RilClientPrv *)(client->prv);
+
+    if (client_prv->sock < 0 ) {
+        RLOGE("%s: Not connected.", __FUNCTION__);
+        return RIL_CLIENT_ERR_CONNECT;
+    }
+
+    if (mode > 7) {
+        RLOGE("%s: Invalid sound clock mode", __FUNCTION__);
+        return RIL_CLIENT_ERR_INVAL;
+    }
+
+    // Make raw data
+    data[0] = OEM_FUNC_SOUND;
+    data[1] = REQ_SET_SOUND_CLOCK_MODE;
+    data[2] = 0x00;         // data length
+    data[3] = 0x05;         // data length
+    data[4] = mode;   // volume type
+
+    RegisterRequestCompleteHandler(client, REQ_SET_SOUND_CLOCK_MODE, NULL);
+
+    ret = SendOemRequestHookRaw(client, REQ_SET_SOUND_CLOCK_MODE, data, sizeof(data));
+    if (ret != RIL_CLIENT_ERR_SUCCESS) {
+        RegisterRequestCompleteHandler(client, REQ_SET_SOUND_CLOCK_MODE, NULL);
+    }
+
+    return ret;
 }
 
 
