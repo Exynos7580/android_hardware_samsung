@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2013 The Android Open Source Project
  * Copyright (C) 2017 Christopher N. Hesse <raymanfx@gmail.com>
+ * Copyright (C) 2018 The LineageOS Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -186,6 +187,9 @@ typedef enum {
     USECASE_AUDIO_CAPTURE,
 
     USECASE_VOICE_CALL,
+
+    USECASE_BT_SCO,
+    USECASE_FM_RADIO,
     AUDIO_USECASE_MAX
 } audio_usecase_t;
 
@@ -227,14 +231,28 @@ struct offload_cmd {
     int             data[];
 };
 
+struct pcm_device_profile {
+    struct pcm_config config;
+    int               card;
+    int               id;
+    usecase_type_t    type;
+    audio_devices_t   devices;
+};
+
+struct pcm_device {
+    struct listnode            stream_list_node;
+    struct pcm_device_profile* pcm_profile;
+    struct pcm*                pcm;
+    int                        status;
+};
+
 struct stream_out {
     struct audio_stream_out     stream;
     pthread_mutex_t             lock; /* see note below on mutex acquisition order */
     pthread_mutex_t             pre_lock; /* acquire before lock to avoid DOS by playback thread */
     pthread_cond_t              cond;
     struct pcm_config           config;
-    int                         pcm_device_id;
-    struct pcm                  *pcm;
+    struct listnode             pcm_dev_list;
     struct compr_config         compr_config;
     struct compress*            compr;
     int                         standby;
@@ -285,8 +303,7 @@ struct stream_in {
     pthread_mutex_t                     pre_lock; /* acquire before lock to avoid DOS by
                                                      capture thread */
     struct pcm_config                   config;
-    struct pcm                          *pcm;
-    int                                 pcm_device_id;
+    struct listnode                     pcm_dev_list;
     int                                 standby;
     audio_source_t                      source;
     audio_devices_t                     devices;
@@ -315,13 +332,6 @@ struct stream_in {
     int16_t *ref_buf;
     size_t ref_buf_size;
     size_t ref_buf_frames;
-
-#ifdef HW_AEC_LOOPBACK
-    bool hw_echo_reference;
-    int16_t* hw_ref_buf;
-    size_t hw_ref_buf_size;
-#endif
-
     int num_preprocessors;
     struct effect_info_s preprocessors[MAX_PREPROCESSORS];
 
@@ -337,6 +347,15 @@ struct stream_in {
                                                         entering standby */
 };
 
+struct mixer_card {
+    struct listnode     adev_list_node;
+    struct listnode     uc_list_node[AUDIO_USECASE_MAX];
+    int                 card;
+    struct mixer*       mixer;
+    struct audio_route* audio_route;
+    struct timespec     dsp_poweroff_time;
+};
+
 struct audio_usecase {
     struct listnode         adev_list_node;
     audio_usecase_t         id;
@@ -345,6 +364,7 @@ struct audio_usecase {
     snd_device_t            out_snd_device;
     snd_device_t            in_snd_device;
     struct audio_stream*    stream;
+    struct listnode         mixer_list;
 };
 
 struct voice_data {
@@ -358,12 +378,10 @@ struct voice_data {
 struct audio_device {
     struct audio_hw_device  device;
     pthread_mutex_t         lock; /* see note below on mutex acquisition order */
-    struct mixer            *mixer;
-    struct audio_route      *audio_route;
+    struct listnode         mixer_list;
     audio_mode_t            mode;
     struct stream_in*       active_input;
     struct stream_out*      primary_output;
-    struct stream_out*      current_call_output;
     bool                    mic_mute;
     bool                    screen_off;
 
@@ -392,6 +410,10 @@ struct audio_device {
     pthread_mutex_t         lock_inputs; /* see note below on mutex acquisition order */
     amplifier_device_t      *amp;
 };
+
+/* From platform_info.c */
+int init_pcm_ids();
+int get_pcm_device_id(audio_usecase_t usecase, usecase_type_t type);
 
 /*
  * NOTE: when multiple mutexes have to be acquired, always take the

@@ -38,6 +38,8 @@
 #include "audience.h"
 #endif
 
+#include "mixer_util.h"
+
 static struct pcm_config pcm_config_voicecall = {
     .channels = 2,
     .rate = 8000,
@@ -139,7 +141,7 @@ void prepare_voice_session(struct voice_session *session,
  * This must be called with the hw device mutex locked, OK to hold other
  * mutexes.
  */
-void stop_voice_session_bt_sco(struct voice_session *session) {
+static void stop_voice_session_bt_sco(struct voice_session *session) {
     ALOGV("%s: Closing SCO PCMs", __func__);
 
     if (session->pcm_sco_rx != NULL) {
@@ -176,7 +178,7 @@ void start_voice_session_bt_sco(struct voice_session *session)
     }
 
     session->pcm_sco_rx = pcm_open(SOUND_CARD,
-                                   SOUND_PLAYBACK_SCO_DEVICE,
+                                   get_pcm_device_id(USECASE_BT_SCO,PCM_PLAYBACK),
                                    PCM_OUT|PCM_MONOTONIC,
                                    voice_sco_config);
     if (session->pcm_sco_rx != NULL && !pcm_is_ready(session->pcm_sco_rx)) {
@@ -186,7 +188,7 @@ void start_voice_session_bt_sco(struct voice_session *session)
     }
 
     session->pcm_sco_tx = pcm_open(SOUND_CARD,
-                                   SOUND_CAPTURE_SCO_DEVICE,
+                                   get_pcm_device_id(USECASE_BT_SCO,PCM_CAPTURE),
                                    PCM_IN|PCM_MONOTONIC,
                                    voice_sco_config);
     if (session->pcm_sco_tx && !pcm_is_ready(session->pcm_sco_tx)) {
@@ -233,7 +235,7 @@ int start_voice_session(struct voice_session *session)
 
     /* Open modem PCM channels */
     session->pcm_voice_rx = pcm_open(SOUND_CARD,
-                                     SOUND_PLAYBACK_VOICE_DEVICE,
+                                     get_pcm_device_id(USECASE_VOICE_CALL,PCM_PLAYBACK),
                                      PCM_OUT|PCM_MONOTONIC,
                                      voice_config);
     if (session->pcm_voice_rx != NULL && !pcm_is_ready(session->pcm_voice_rx)) {
@@ -248,7 +250,7 @@ int start_voice_session(struct voice_session *session)
     }
 
     session->pcm_voice_tx = pcm_open(SOUND_CARD,
-                                     SOUND_CAPTURE_VOICE_DEVICE,
+                                     get_pcm_device_id(USECASE_VOICE_CALL,PCM_CAPTURE),
                                      PCM_IN|PCM_MONOTONIC,
                                      voice_config);
     if (session->pcm_voice_tx != NULL && !pcm_is_ready(session->pcm_voice_tx)) {
@@ -264,6 +266,10 @@ int start_voice_session(struct voice_session *session)
 
     pcm_start(session->pcm_voice_rx);
     pcm_start(session->pcm_voice_tx);
+
+    if (session->out_device & AUDIO_DEVICE_OUT_ALL_SCO) {
+        start_voice_session_bt_sco(session);
+    }
 
 #ifdef AUDIENCE_EARSMART_IC
     ALOGV("%s: Enabling Audience IC", __func__);
@@ -305,6 +311,10 @@ void stop_voice_session(struct voice_session *session)
         pcm_close(session->pcm_voice_tx);
         session->pcm_voice_tx = NULL;
         status++;
+    }
+
+    if (session->out_device & AUDIO_DEVICE_OUT_ALL_SCO) {
+        stop_voice_session_bt_sco(session);
     }
 
 #ifdef AUDIENCE_EARSMART_IC
